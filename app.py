@@ -2,124 +2,130 @@ import streamlit as st
 import pandas as pd
 import os
 
-# Configuração inicial da página
+# 1. Configuração de Página
 st.set_page_config(page_title="Painel de Remuneração de Jetons", layout="wide")
 
-# Função para carregar os dados considerando o caminho relativo no repositório
+# 2. Customização de Cores (Azul nas seleções)
+st.markdown("""
+    <style>
+    span[data-baseweb="tag"] {
+        background-color: #1f77b4 !important;
+        color: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# 3. Função de Carga e Limpeza
 
 
 @st.cache_data
 def load_data():
-    # Caminho ajustado para a pasta 'dados' conforme solicitado
     caminho_dados = os.path.join('dados', 'base_jeton_2025_2026.csv')
-
     if not os.path.exists(caminho_dados):
-        st.error(
-            f"Arquivo não encontrado em: {caminho_dados}. Verifique se a pasta e o arquivo existem no repositório.")
         return pd.DataFrame()
 
-    # Lê o arquivo CSV consolidado (separador ponto e vírgula)
-    df = pd.read_csv(caminho_dados, sep=';', encoding='utf-8-sig')
+    df = pd.read_csv(caminho_dados, sep=';', encoding='latin1')
 
-    # Tratamento da coluna 'Jetons Pagos' para garantir cálculos numéricos
-    if 'Jetons Pagos' in df.columns and df['Jetons Pagos'].dtype == 'O':
-        df['Jetons Pagos'] = (
-            df['Jetons Pagos']
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
-            .astype(float)
-        )
+    if 'Jetons Pagos' in df.columns:
+        def converter_valor(val):
+            if pd.isnull(val):
+                return 0.0
+            if isinstance(val, (int, float)):
+                return float(val)
+            v = str(val).strip().replace('.', '').replace(',', '.')
+            try:
+                return float(v)
+            except:
+                return 0.0
+        df['Jetons Pagos'] = df['Jetons Pagos'].apply(converter_valor)
     return df
 
 
 df = load_data()
 
-if not df.empty:
-    # ==========================================
-    # BARRA LATERAL (SIDEBAR) - FILTROS E BUSCA
-    # ==========================================
-    st.sidebar.header("Filtros de Pesquisa")
+# 4. Inicialização de Estados (Menu e Filtros)
+# Definimos as variáveis possíveis para a tabela
+colunas_possiveis = ['Mês - descritivo', 'Ano', 'Servidor', 'Empresa - Sigla']
+colunas_reais = [c for c in colunas_possiveis if c in df.columns]
 
-    # Campo de busca por nome do Servidor
-    busca_nome = st.sidebar.text_input("🔍 Buscar por Nome do Servidor:")
+if "menu_selecionado" not in st.session_state:
+    st.session_state.menu_selecionado = colunas_reais  # Inicia com todas selecionadas
 
-    # Filtros Multi-seleção
-    anos = st.sidebar.multiselect(
-        "Ano",
-        options=sorted(df['Ano'].dropna().unique()),
-        default=sorted(df['Ano'].dropna().unique())
-    )
+if "f_nome" not in st.session_state:
+    st.session_state.f_nome = ""
+if "f_ano" not in st.session_state:
+    st.session_state.f_ano = []
+if "f_mes" not in st.session_state:
+    st.session_state.f_mes = []
+if "f_emp" not in st.session_state:
+    st.session_state.f_emp = []
 
-    meses = st.sidebar.multiselect(
-        "Mês - descritivo",
-        options=df['Mês - descritivo'].dropna().unique(),
-        default=df['Mês - descritivo'].dropna().unique()
-    )
 
-    empresas = st.sidebar.multiselect(
-        "Empresa - Sigla",
-        options=sorted(df['Empresa - Sigla'].dropna().unique()),
-        default=sorted(df['Empresa - Sigla'].dropna().unique())
-    )
+def limpar_tudo():
+    st.session_state.f_nome = ""
+    st.session_state.f_ano = []
+    st.session_state.f_mes = []
+    st.session_state.f_emp = []
 
-    # Aplicando os filtros no DataFrame
-    df_filtered = df.copy()
 
-    if anos:
-        df_filtered = df_filtered[df_filtered['Ano'].isin(anos)]
-    if meses:
-        df_filtered = df_filtered[df_filtered['Mês - descritivo'].isin(meses)]
-    if empresas:
-        df_filtered = df_filtered[df_filtered['Empresa - Sigla'].isin(
-            empresas)]
-    if busca_nome:
-        df_filtered = df_filtered[df_filtered['Servidor'].str.contains(
-            busca_nome, case=False, na=False)]
+# 5. Barra Lateral
+st.sidebar.header("Filtros de Pesquisa")
+st.sidebar.button("🧹 Limpar Filtros", on_click=limpar_tudo,
+                  use_container_width=True)
+st.sidebar.markdown("---")
 
-    # ==========================================
-    # ÁREA PRINCIPAL - MENU DINÂMICO E TABELA
-    # ==========================================
-    st.title("📊 Painel Dinâmico de Jetons Pagos")
+busca = st.sidebar.text_input("🔍 Servidor:", key="f_nome")
+anos_sel = st.sidebar.multiselect("Ano:", options=sorted(
+    df['Ano'].unique()) if 'Ano' in df.columns else [], key="f_ano")
+meses_sel = st.sidebar.multiselect("Mês:", options=df['Mês - descritivo'].unique(
+) if 'Mês - descritivo' in df.columns else [], key="f_mes")
+emp_sel = st.sidebar.multiselect("Empresa:", options=sorted(
+    df['Empresa - Sigla'].unique()) if 'Empresa - Sigla' in df.columns else [], key="f_emp")
 
-    st.markdown("""
-    Utilize o menu abaixo para compor a visão da tabela. O campo **Jetons Pagos** será consolidado 
-    automaticamente conforme os parâmetros selecionados.
-    """)
+# Aplicar Filtros
+df_f = df.copy()
+if anos_sel:
+    df_f = df_f[df_f['Ano'].isin(anos_sel)]
+if meses_sel:
+    df_f = df_f[df_f['Mês - descritivo'].isin(meses_sel)]
+if emp_sel:
+    df_f = df_f[df_f['Empresa - Sigla'].isin(emp_sel)]
+if busca:
+    df_f = df_f[df_f['Servidor'].str.contains(busca, case=False, na=False)]
 
-    # Variáveis disponíveis para o usuário escolher
-    variaveis_disponiveis = ['Mês - descritivo',
-                             'Ano', 'Servidor', 'Empresa - Sigla']
+# 6. Área Principal
+st.subheader("Painel Dinâmico de Jetons Pagos")
 
-    # Menu dinâmico de seleção de colunas (acima da tabela)
-    colunas_selecionadas = st.multiselect(
-        "Selecione as variáveis para agrupamento:",
-        options=variaveis_disponiveis,
-        default=['Ano', 'Empresa - Sigla']
-    )
+# Menu Dinâmico com todas as variáveis selecionadas por padrão
+selecao_colunas = st.multiselect(
+    "Variáveis de exibição (Jetons Pagos é fixo):",
+    options=colunas_reais,
+    key="menu_selecionado"
+)
 
-    st.divider()
+st.divider()
 
-    if colunas_selecionadas:
-        # Agrupamento dinâmico
-        df_agrupado = df_filtered.groupby(colunas_selecionadas, as_index=False)[
-            'Jetons Pagos'].sum()
-        df_agrupado = df_agrupado.sort_values(by=colunas_selecionadas)
+if selecao_colunas:
+    # Agrupamento
+    df_resumo = df_f.groupby(selecao_colunas, as_index=False)[
+        'Jetons Pagos'].sum()
 
-        # Formatação para moeda brasileira (R$)
-        df_agrupado['Valor Formatado'] = df_agrupado['Jetons Pagos'].apply(
-            lambda x: f"R$ {x:,.2f}".replace(
-                ',', 'X').replace('.', ',').replace('X', '.')
-        )
+    # ORDENAÇÃO NUMÉRICA (Essencial para o Gustavo Barbosa ficar no topo)
+    df_resumo = df_resumo.sort_values(by='Jetons Pagos', ascending=False)
 
-        # Exibição da tabela dinâmica
-        df_display = df_agrupado.drop(columns=['Jetons Pagos']).rename(
-            columns={'Valor Formatado': 'Jetons Pagos'})
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+    # FORMATAÇÃO BRASILEIRA (Forçando ponto no milhar e vírgula no decimal)
+    def formatar_br(valor):
+        # Gera R$ 391,600.79 -> Troca para R$ 391.600,79
+        texto = f"R$ {valor:,.2f}"
+        return texto.replace(',', 'X').replace('.', ',').replace('X', '.')
 
-        # Resumo métrico
-        total_selecao = df_filtered['Jetons Pagos'].sum()
-        st.info(f"**Total acumulado na seleção:** R$ {total_selecao:,.2f}".replace(
-            ',', 'X').replace('.', ',').replace('X', '.'))
-    else:
-        st.warning(
-            "⚠️ Selecione pelo menos uma variável no menu acima para visualizar os dados.")
+    df_resumo['Jetons Pagos'] = df_resumo['Jetons Pagos'].apply(formatar_br)
+
+    # Exibição
+    st.dataframe(df_resumo, use_container_width=True, hide_index=True)
+
+    # Total Geral no rodapé
+    total = df_f['Jetons Pagos'].sum()
+    st.info(f"**Total na seleção atual:** {formatar_br(total)}")
+else:
+    st.warning("Selecione variáveis no menu acima para compor a tabela.")
